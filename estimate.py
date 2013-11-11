@@ -4,10 +4,6 @@ from nipype.pipeline import engine as pe
 import os
 import nipype.interfaces.utility as util     # utility
 import sys
-
-cmd_folder = '/home/gdholla1/Projects/in_limbo/code/'
-if cmd_folder not in sys.path:
-    sys.path.insert(0, cmd_folder)
     
 import in_limbo
 
