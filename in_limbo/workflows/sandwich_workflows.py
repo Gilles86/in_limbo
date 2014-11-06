@@ -42,7 +42,7 @@ def create_level1_sandwich(name='level1_sandwich',
     workflow.connect(onsets_cutter, 'cutted_data', sandwich_estimator, 'cutted_data')
 
 
-    contraster = pe.Node(SandwichContrast(), 
+    contraster = pe.MapNode(SandwichContrast(), 
                          iterfield=['beta', 'variance', 'q', 'session_info'],
                          name='contraster')
     workflow.connect(inputspec, 'contrasts', contraster, 'contrasts')
@@ -66,13 +66,34 @@ def create_level1_sandwich(name='level1_sandwich',
     workflow.connect(sandwich_estimator, 'residuals', outputspec, 'residuals')
     workflow.connect(onsets_cutter, 'design_matrices', outputspec, 'design_matrices')
 
+
     # Take sqrt to get standard errors
     sqrt = pe.MapNode(fsl.maths.UnaryMaths(), name='sqrt',
                       iterfield=['in_file'])
 
     sqrt.inputs.operation  = 'sqrt'
-    workflow.connect(contraster, 'varcope', sqrt, 'in_file')
-    workflow.connect(sqrt, 'out_file', outputspec, 'sqrt')
+
+    def flatten(list_in):
+        return [item for sublist in list_in for item in sublist]
+
+    def split(list_in, length_sublists):
+        list_out = [list_in[i*length_sublists:(i+1)*length_sublists] for i in xrange(len(list_in) / length_sublists)]
+        return list_out
+
+    def length(list_in):
+        return len(list_in)
+    
+    split = pe.Node(util.Function(function=split,
+                                  input_names=['list_in',
+                                               'length_sublists'],
+                                  output_names=['list_out']),
+                    name='split')
+
+    workflow.connect(contraster, ('varcope', flatten), sqrt, 'in_file')
+    workflow.connect(sqrt, 'out_file', split, 'list_in')
+    workflow.connect(contraster, ('cope', length), split, 'length_sublists')
+
+    workflow.connect(split, 'list_out', outputspec, 'varcope')
 
     for field in ['z_stat', 't_stat', 'cope', 'dof']:
         workflow.connect(contraster, field, outputspec, field)
