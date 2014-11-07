@@ -213,6 +213,7 @@ class SandwichContrastOutputSpec(TraitedSpec):
     cope = traits.List(traits.File, exists=True, desc='File with parameter estimates of contrast sizes')
     varcope = traits.List(traits.File, exists=True, desc='File with variance of contrasts')
     dof = traits.File(exists=True)
+    contrast_vector = traits.List(traits.File(exists=True))
 
 
 class SandwichContrast(BaseInterface):
@@ -238,12 +239,16 @@ class SandwichContrast(BaseInterface):
         copes = []
         varcopes = []
 
+        cvs = []
+
         for contrast in contrasts:
             cv = np.zeros((1, beta.shape[-1]))
             for key, value in zip(*contrast[2:]):
                 for i, cond in enumerate(session_info['cond']):
                     if cond['name'] == key:
                         cv[0, i] = value
+
+            cvs.append(cv)
             
             cope = np.tensordot(cv, beta, (1, -1)).squeeze()
             varcope = np.tensordot(np.tensordot(cv, variance, (1, 0)), cv, (1, 1)).squeeze()
@@ -269,6 +274,9 @@ class SandwichContrast(BaseInterface):
         for z, fn in zip(ts, self._gen_fnames('z_stat')):
             nb.save(nb.Nifti1Image(t, beta_image.get_affine()), fn)            
            
+        for cv, fn in zip(cvs, self._gen_fnames('contrast_vector')):
+            np.savetxt(fn, cv)
+
         np.savetxt(os.path.abspath('dof'), [dof], fmt='%d')
 
 
@@ -277,7 +285,7 @@ class SandwichContrast(BaseInterface):
     def _list_outputs(self):
         outputs = self._outputs().get()
         
-        for field in ['cope', 'varcope', 't_stat', 'z_stat']:
+        for field in ['cope', 'varcope', 't_stat', 'z_stat', 'contrast_vector']:
             outputs[field] = self._gen_fnames(field)
 
         outputs['dof'] = os.path.abspath('dof')
@@ -288,9 +296,14 @@ class SandwichContrast(BaseInterface):
     def _gen_fnames(self, field):       
        
         fns = []
+
+        if field == 'contrast_vector':
+            ext = 'txt'
+        else:
+            ext = 'nii.gz'
         
         for i in np.arange(len(self.inputs.contrasts)):
-            fns.append(os.path.abspath('%s%d.nii.gz' % (field, i+1)))
+            fns.append(os.path.abspath('%s%d.%s' % (field, i+1, ext)))
             
         return fns    
 
@@ -384,9 +397,10 @@ class GetVoxelCovariance(BaseInterface):
 
 
         # # Create covariance matrices for every residual
-        for residual in residuals:
-            print residual.shape
+        for i, residual in enumerate(residuals):
+            print 'residual %d' % i, residual.get_data().sum(), 
             W_ij += np.einsum('...i, ...j->ij...', residual.get_data()[comp_index], residual.get_data()) # do outer product over last two dimensions, broadcast the rest
+            print W_ij.sum()
 
         # # Normalize
         W_ij /= (q - 1)
@@ -396,6 +410,7 @@ class GetVoxelCovariance(BaseInterface):
 
         for i, x in enumerate(design_matrices):
             print i
+            print V_ij.sum()
 
             sandwich1 = np.linalg.pinv(x.T.dot(x)).dot(x.T)    
             sandwich2 = x.dot(np.linalg.pinv(x.T.dot(x)))
@@ -425,3 +440,66 @@ class GetVoxelCovariance(BaseInterface):
 
         return outputs
 
+
+
+class Level2WLSInputSpec(BaseInterfaceInputSpec):
+    weights = traits.List(traits.File, desc='List of weight maps')
+    copes = traits.List(desc='List of contrast estimates')
+    comp_voxel = traits.Tuple(desc='Comparison voxel to make covariance matrix against')
+    
+
+class Level2WLSOutputSpec(TraitedSpec):
+    t_stats = traits.File(exists=True, desc="Covariance map (regressor x regressor x (image size))")
+    z_stats = traits.File(exists=True, desc="Covariance map (regressor x regressor x (image size))")    
+
+
+class Level2WLS(BaseInterface):
+    input_spec = Level2WLSInputSpec
+    output_spec = Level2WLSOutputSpec
+
+    def _run_interface(self, runtime):
+        
+        
+        copes = np.array([nb.load(cope).get_data() for cope in self.inputs.copes])
+        print copes.shape
+        
+        Z = (copes[(Ellipsis,) + self.inputs.comp_voxel] - np.array(copes)[:, ...].T).T # Transform to facilitate broadcasting            
+        W = np.array([nb.load(w).get_data() for w in self.inputs.weights])
+        print W.shape
+        
+        G = np.ones((W.shape[0], 1))
+        
+        beta = np.einsum('i...,i...->...i', G, W)
+        beta = 1. / np.einsum('...i,i...->...', beta, G)
+        beta = np.einsum('...,i...->...i', beta, G)
+        beta = np.einsum('...i,i...->i...', beta, W)
+        beta = np.einsum('i...,i...->...', beta, Z)
+
+        residuals = (Z - beta)
+        s2 = np.einsum('i...,i...->...i', residuals, W)
+        s2 = np.einsum('...i,i...->...', s2, residuals)
+        s2 /= (residuals.shape[0] - 1)
+
+        wls_V = 1. / W.sum(0) # inv(G.T.dot(W).dot(G))
+        wls_V *= s2
+        
+        t = beta / np.sqrt(wls_V)
+        
+        dof = len(copes) - 1
+        z = sp.stats.norm.ppf(sp.stats.t(dof).cdf(t))
+        
+        nb.save(nb.Nifti1Image(t, nb.load(self.inputs.copes[0]).get_affine()),
+                               os.path.abspath('t_stats.nii.gz'))
+        
+        nb.save(nb.Nifti1Image(z, nb.load(self.inputs.copes[0]).get_affine()),
+                               os.path.abspath('z_stats.nii.gz'))
+
+        return runtime
+
+    def _list_outputs(self):
+        outputs = self._outputs().get()
+        
+        outputs['t_stats'] = os.path.abspath('t_stats.nii.gz')
+        outputs['z_stats'] = os.path.abspath('z_stats.nii.gz')                                             
+
+        return outputs
