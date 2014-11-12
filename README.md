@@ -9,6 +9,14 @@ It includes the original code, and, importantly, also a collection of
 make it relatively easy to apply the methods of the paper to your own fMRI
 dataset.
 
+## Installation
+To install this package, simply do
+
+	pip install in_limbo
+
+or for the latest development version:
+
+	pip install git+git://github.com/Gilles86/in_limbo.git#egg=in_limbo
 
 ## Simulations
 Notebooks redoing the simulations of the paper can be found here
