@@ -27,4 +27,4 @@ Notebooks redoing the simulations of the paper can be found here
 ## Examples
 
 * [How to do a level-1 analysis using the sandwich estimator](http://nbviewer.ipython.org/github/Gilles86/in_limbo/blob/master/notebooks/How%20to%20use%20standard%20level%201%20sandwich%20estimator.ipynb)
-* [How to do a level-2 analysis including an in limbo-anaysis and using the sandwich estimator](http://nbviewer.ipython.org/github/Gilles86/in_limbo/blob/master/notebooks/How%20to%20use%20standard%20level%201%20sandwich%20estimator.ipynb)
+* [How to do a level-2 analysis including an in limbo-anaysis and using the sandwich estimator](http://nbviewer.ipython.org/github/Gilles86/in_limbo/blob/master/notebooks/How%20to%20use%20standard%20level%202%20sandwich%20estimator.ipynb)
